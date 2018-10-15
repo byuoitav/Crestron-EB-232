@@ -1,0 +1,61 @@
+//Module Info
+/*
+	Name: Bradley T Streeter, Dan Clegg
+	Company: Brigham Young University
+*/
+
+//Compiler Directives
+#Symbol_Name "Volume Press and Hold"
+#CATEGORY "46" "Volume"  //Custom
+#Default_Volatile	//All variables are in volitile memory (will be erased upon reboot)
+#Enable_Stack_Checking
+#Enable_Trace
+
+//Input output variables
+DIGITAL_INPUT Up_Press,Down_Press;
+DIGITAL_OUTPUT Volume_Up,Volume_Down;
+
+//Global variables
+
+//Parameters
+
+//Parameter Properties
+
+//Sockets
+
+//Functions
+
+//Events-Push-Release-Change
+
+Push Up_Press{
+	Volume_Up = 1;
+	Delay(10);
+	Volume_Up = 0;
+	
+	While (Up_Press){
+		Volume_Up = 1;
+		Delay(10);
+		Volume_Up = 0;
+		Delay(10);
+	}
+}
+
+Push Down_Press{
+	Volume_Down = 1;
+	Delay(10);
+	Volume_Down = 0;
+	
+	While (Down_Press){
+		Volume_Down = 1;
+		Delay(10);
+		Volume_Down = 0;
+		Delay(10);
+	}
+}
+
+//Function Main
+
+Function Main()	//Gets run at startup
+{
+	waitforinitializationcomplete();
+}

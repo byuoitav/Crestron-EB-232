@@ -1,0 +1,126 @@
+/*******************************************************************************************
+  SIMPL+ Module Information
+  (Fill in comments below)
+*******************************************************************************************/
+/*
+Dealer Name: Brigham Young University
+System Name: Report Current Config
+System Number: 1.0.0
+Programmer: Dan Clegg
+Comments: Forwards Configuration Data
+*/
+
+/*******************************************************************************************
+  Compiler Directives
+  (Uncomment and declare compiler directives as needed)
+*******************************************************************************************/
+#SYMBOL_NAME "Report Configuration"
+#CATEGORY "46" "Metrics"
+#DEFINE_CONSTANT	BIGGESTSIZE	65534
+#DEFINE_CONSTANT	NEWLINE	"\n"
+#DEFINE_CONSTANT	USER	"user"
+#DEFINE_CONSTANT	SYSTEM	"system"
+#DEFINE_CONSTANT	AWS	"search-byu-oit-av-metrics-ruenjnrqfuhghh7omvtmgcqe7m.us-west-1.es.amazonaws.com"
+#OUTPUT_SHIFT 25
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+
+/*******************************************************************************************
+  DIGITAL_INPUT, ANALOG_INPUT, STRING_INPUT, BUFFER_INPUT inputs and DIGITAL_OUTPUT, 
+  ANALOG_OUTPUT, STRING_OUTPUT and SERIAL_OUTPUT outputs
+*******************************************************************************************/
+ANALOG_INPUT Current_TZ;
+
+DIGITAL_INPUT clientConnected,systemReady;   
+
+DIGITAL_OUTPUT _clientConnected;
+
+/*******************************************************************************************
+  Functions -- No Editing
+*******************************************************************************************/
+           
+STRING_FUNCTION Sanitize(string msg)
+{
+	string strippedMessage[1024], char[1];
+	integer i;
+
+	for (i = 1 to len(msg)) // Loop through the string
+	{
+		char = mid(msg, i, 1);
+
+		if ((char != "_") && (char != "/")) // Kill character
+		{
+			strippedMessage = strippedMessage + char;
+		}
+	}
+
+	while (mid(strippedMessage, 1, 1) = " ") // Kill the leading space if it exists
+	{
+    	strippedMessage = right(strippedMessage, len(strippedMessage) - 1);
+	}
+     
+	while (mid(strippedMessage, len(strippedMessage), 1) = " ") // Kill the trailing space if it exists
+	{
+    	strippedMessage = left(strippedMessage, len(strippedMessage) - 1);
+	}
+       
+	RETURN (strippedMessage);
+}
+
+Function Log(string msg)
+{	
+	Print("\n%s",msg);
+}
+
+Function Error(string msg)
+{
+	Log(msg);
+}
+
+/*******************************************************************************************
+  Event Handlers
+  (Uncomment and declare additional event handlers as needed)
+*******************************************************************************************/
+
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/******************
+//
+// !!! MOVE ACTIVE SIGNAL EVENTS INTO THIS SECTION !!!
+//
+******************/
+
+CHANGE Current_TZ
+{
+	string str[100];
+	MakeString(str,"Current TZ is %d",Current_TZ);
+	Log(str);
+}
+
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+// !!!!!!!!! MOVE INACTIVE SIGNAL EVENTS HERE !!!!!!!!!!!!!!
+
+
+// !!!!!!!! SYSTEM SETUP EVENTS -- NO EDITING
+// If system gets hostname, set it in the global var
+/*******************************************************************************************
+  Main()
+  Uncomment and place one-time startup code here
+  (This code will get called when the system starts up)
+*******************************************************************************************/
+
+Function Main()
+{
+    // Initialize declared global and local variables/arrays
+
+    // If you are reading any Input or Output variables, uncomment
+    //   the WaitForInitializationComplete statement above and read
+    //   them afterwards.  Input/Output variables will not have
+    //   their correct values set until after the logic processor
+    //   runs and propagates the values to them.
+    WaitForInitializationComplete();
+
+	}

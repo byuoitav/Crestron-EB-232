@@ -1,0 +1,855 @@
+/*******************************************************************************************
+  SIMPL+ Module Information
+  (Fill in comments below)
+*******************************************************************************************/
+/*
+Dealer Name: Brigham Young University
+System Name: Metrics Proxy
+System Number: 1.2.0
+Programmer: DC
+Comments: Forwards Metrics Events
+*/
+
+/*******************************************************************************************
+  Compiler Directives
+  (Uncomment and declare compiler directives as needed)
+*******************************************************************************************/
+#SYMBOL_NAME "Metrics"
+#CATEGORY "46" "Metrics"
+#DEFINE_CONSTANT	BIGGESTSIZE	65534
+#DEFINE_CONSTANT	NEWLINE	"\n"
+#DEFINE_CONSTANT	USER	"user"
+#DEFINE_CONSTANT	SYSTEM	"system"
+#DEFINE_CONSTANT	AWS	"awsElasticSearchUrl"
+#OUTPUT_SHIFT 25
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+
+/*******************************************************************************************
+  DIGITAL_INPUT, ANALOG_INPUT, STRING_INPUT, BUFFER_INPUT inputs and DIGITAL_OUTPUT, 
+  ANALOG_OUTPUT, STRING_OUTPUT and SERIAL_OUTPUT outputs
+*******************************************************************************************/
+DIGITAL_INPUT Startup_press,Confirm_System_Off,Program_Volume_Down,Program_Volume_Up,Select_AV_Jack,Select_Blank,Select_BluRay,Select_Device_Control_Bluray,Select_Device_Control_IPTV,Select_HDMI_Cable,Select_HDMI_Jack,Select_IPTV,Select_Local_Input,Select_PA_Control,Select_Remote_Input1,Select_Remote_Input2,Select_VGA_Cable,Help_Menu_Press,Home_button,Program_Volume_Slider_Press,Audio_Only_Press;
+
+DIGITAL_INPUT _skip_,_skip_,_skip_,_skip_,_skip_;
+ 
+DIGITAL_INPUT clientConnected,systemReady;   
+
+STRING_INPUT cpHostName[32],cpIp[15],cpMACAddr[18],devBuilding[8],devRoom[16],devFloor[2],devLatitude[11],devLongitude[11],volumeLevel[4],sessionId[256],InputLabel1[30],InputLabel2[30],InputLabel3[30],InputLabel4[30],InputLabel5[30],InputLabel6[30],InputLabel7[30];
+                               
+BUFFER_INPUT clientBuffer[100];
+
+DIGITAL_OUTPUT _clientConnected;
+
+STRING_OUTPUT  _skip_,_skip_,_skip_,_skip_,toDevBuilding,toDevRoom,toDevFloor,toDevLat,toDevLon,toClientBuffer$,storeSessionId;
+
+
+/*******************************************************************************************
+  SOCKETS
+*******************************************************************************************/
+
+TCP_CLIENT client[1024];
+
+/*******************************************************************************************
+  Structure Definitions
+  Note:  Be sure to initialize all declared STRING variables as needed
+         For example, in Function Main: struct.myString = "";
+*******************************************************************************************/
+
+STRUCTURE QUEUEDEVENT
+{
+	STRING userOrSystem[15];
+	STRING header1[1024],header2[1024],header3[1024],header4[1024],header5[1024],header6[1024];
+	STRING innerMsg1[1024],innerMsg2[1024],innerMsg3[1024],innerMsg4[1024];
+};                    
+
+
+
+/*******************************************************************************************
+  Global Variables
+  (Uncomment and declare global variables as needed)
+  Note:  Be sure to initialize all declared STRING variables as needed
+         For example, in Function Main: myString = "";
+*******************************************************************************************/
+
+SIGNED_INTEGER CONFIGFILEHANDLE;
+STRING REPORTINGHOST[30],HOSTNAME[30],HOSTIP[15],HOSTMAC[30],HOSTBLDG[8],HOSTROOM[16],HOSTFLOOR[2],HOSTLAT[11],HOSTLON[11],SESSION[256],INPUT1[30],INPUT2[30],INPUT3[30],INPUT4[30],INPUT5[30],INPUT6[30],INPUT7[30];
+STRING MESSAGE[BIGGESTSIZE];
+INTEGER REPORTINGHOSTPORT,RECONNECTTIME;
+
+/*******************************************************************************************
+  Functions -- No Editing
+*******************************************************************************************/
+           
+STRING_FUNCTION Sanitize(string msg)
+{
+	string strippedMessage[1024], char[1];
+	integer i;
+
+	for (i = 1 to len(msg)) // Loop through the string
+	{
+		char = mid(msg, i, 1);
+
+		if ((char != "_") && (char != "/")) // Kill character
+		{
+			strippedMessage = strippedMessage + char;
+		}
+	}
+
+	while (mid(strippedMessage, 1, 1) = " ") // Kill the leading space if it exists
+	{
+    	strippedMessage = right(strippedMessage, len(strippedMessage) - 1);
+	}
+     
+	while (mid(strippedMessage, len(strippedMessage), 1) = " ") // Kill the trailing space if it exists
+	{
+    	strippedMessage = left(strippedMessage, len(strippedMessage) - 1);
+	}
+       
+	RETURN (strippedMessage);
+}
+
+Function Log(string msg)
+{	
+	Print("\n%s",msg);
+}
+
+Function Error(string msg)
+{
+	Log(msg);
+}
+
+Function Send(string msg)
+{
+	//Print("Sending: %s",msg);
+	SocketSend(client,msg);	
+}
+
+Function storeGlobalVars(string inputString)
+{
+	STRING trash[100],parseThisString[1024],temp[1024];
+	
+	// Expected Format: {"room":{"coordinates":[-111.657548,40.252619],"roomNumber":"1100J","floor":"1","building":"ITB"}}
+	if((FIND("building",inputString) > 0) && (FIND("roomNumber",inputString) > 0) && (FIND("floor",inputString) > 0) && (FIND("building",inputString) > 0))
+	{
+		trash = Remove(":[",inputString);
+		parseThisString = inputString;
+		
+		// Get Longitude
+		HOSTLON = Remove(",",parseThisString);
+		
+		// Get Latitude
+		HOSTLAT = Remove("],",parseThisString);
+		
+		// Get Room
+		trash = Remove(":\"",parseThisString);
+		HOSTROOM = Remove("\"",parseThisString);
+		
+		// Get Floor
+		trash = Remove(":\"",parseThisString);
+		HOSTFLOOR = Remove(",",parseThisString);
+		
+		//Get Building
+		
+		trash = Remove(":\"",parseThisString);
+		temp = parseThisString;
+		HOSTBLDG = Remove("\"",temp);		
+	}
+}
+        
+Function BuildHttpMessage(STRING EVENTACTOR, STRING EVENTACTION, STRING userOrSystem, STRING sessn)
+{
+	SIGNED_INTEGER dst,mNum,yNum,dNum,ContentLength;
+    SIGNED_LONG_INTEGER PortNumber;
+	STRING timestamp[24];
+	STRING dateStr[24];
+	STRING timeStr[24];
+	STRING description[256];
+	STRING ipAddress[15];
+	STRING mac[17];
+	STRING building[8];
+	STRING roomNumber[8];
+	STRING lat[11];
+	STRING lon[11];
+	STRING flr[8];
+	STRING actor[30];
+	STRING desc[256];
+	STRING type[6];
+	STRING header1[1024],header2[1024],header3[1024],header4[1024],header5[1024],header6[1024];
+	STRING innerMsg1[1024],innerMsg2[1024],innerMsg3[1024],innerMsg4[1024];
+	STRING CLString[1024];
+	INTEGER spacePosition;
+
+	hostname = HOSTNAME;
+	description = "";
+	ipAddress = HOSTIP;
+	mac = HOSTMAC;
+	building = HOSTBLDG;
+	roomNumber = HOSTROOM;
+	lat = HOSTLAT;
+	lon = HOSTLON;
+	flr = HOSTFLOOR;
+	actor = EVENTACTOR;
+	desc = EVENTACTION;
+	type = userOrSystem;
+
+	spacePosition = Find(" ",HOSTNAME);
+	if(spacePosition = 1){
+		HOSTNAME = RIGHT(HOSTNAME, LEN(HOSTNAME) - 1);
+	}
+
+	mNum = GetMonthNum();
+	yNum = GetYearNum();
+	dNum = GetDateNum();
+
+	dateStr = ITOA(yNum) + "-" + ITOA(mNum) + "-"+ ITOA(dNum);
+	timeStr = Time();
+	dst = GetDST();
+
+	// Change the timestamp depending on DST
+	if(dst = 1) {
+		timestamp = dateStr +"T"+ timeStr + "-0600"; // YYYY-MM-DDTHH:mm:ss.SSS-0000
+	} else if(dst = 2) {
+		timestamp = dateStr +"T"+ timeStr + "-0700"; // YYYY-MM-DDTHH:mm:ss.SSS-0000
+	}
+
+	innerMsg1 = "{\"type\": \"" + type + "\",\"timestamp\": \"" + timestamp +"\",\"eventTime\": \"" + timeStr +"\",\"eventDate\": \"" + dateStr +"\",\"device\": {\"hostname\": \"" + HOSTNAME +"\", \"description\": \"";
+	innerMsg2 = "" + description +"\", \"ipAddress\": \"" + ipAddress +"\", \"macAddress\": \"" + mac +"\"}, \"room\": { \"building\": \"" + building;
+	innerMsg3 = "\", \"roomNumber\": \"" + roomNumber +"\",\"coordinates\": \"" + lat +"," + lon +"\", \"floor\": \"" + flr + "\"";
+	innerMsg4 = "},\"action\": {\"actor\": \"" + actor +"\", \"description\": \"" + desc +"\"}, \"session\": \""+ SESSION + "\"}";
+	ContentLength = Len(innerMsg1) + Len(innerMsg2) + Len(innerMsg3) + Len(innerMsg4);
+	CLString = ITOA(ContentLength);
+    
+	if (EVENTACTION = "System active"){
+		header1 = "POST /events/" + userOrSystem +"/" + hostname + "_SystemActive HTTP/1.1" + NEWLINE;
+	}
+	ELSE {
+		header1 = "POST /events/" + userOrSystem +"/ HTTP/1.1" + NEWLINE;
+	}
+	header2 = "Host: " + AWS + ":" + ITOA(REPORTINGHOSTPORT) + NEWLINE;
+	header3 = "Connection: keep-alive" + NEWLINE;
+	header4 = "Content-Length: " + CLString + NEWLINE;
+	header5 = "Content-type: text/plain;charset=UTF-8" + NEWLINE;
+	header6 = "Accept: */*" + NEWLINE;
+	Print("%s",header1);
+	Print("%s",header1);
+	Print("%s",header2);
+	Print("%s",header3);
+	Print("%s",header4);
+	Print("%s",header5);
+	Print("%s",header6);
+	Print("%s",NEWLINE);
+	Print("%s",innerMsg1);
+	Print("%s",innerMsg2);
+	Print("%s",innerMsg3);
+	Print("%s",innerMsg4);
+
+	Send(header1);
+	Send(header2);
+	Send(header3);
+	Send(header4);
+	Send(header5);
+	Send(header6);
+	Send(NEWLINE);
+	Send(innerMsg1);
+	Send(innerMsg2);
+	Send(innerMsg3);
+	Send(innerMsg4);
+}
+
+
+Function StartSession()
+{
+	SIGNED_INTEGER mNum,yNum,dNum;
+	INTEGER ticks,ch,counter,period;
+	STRING genSession[256], msg[256],tmpMac[30],leftover[30],tmp[30];
+	tmp = "";
+	leftover = "";
+	ticks = GetTicks();
+	// PATTERN : SERIAL 
+	genSession = ITOA(ticks);
+	tmpMac = HOSTMAC;
+	mNum = GetMonthNum();
+	yNum = GetYearNum();
+	dNum = GetDateNum();	
+	
+	if (len(tmpMac) > 0 && FIND(".",tmpMac) > 0)
+	{
+		ch = GetC(tmpMac);		
+		leftover = leftover + CHR(ch);
+		ch = GetC(tmpMac);	
+		leftover = leftover + CHR(ch);
+		period = GetC(tmpMac);
+		
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		period = GetC(tmpMac);
+		
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		period = GetC(tmpMac);
+		
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		period = GetC(tmpMac);
+		
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		period = GetC(tmpMac);
+		
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+		ch = GetC(tmpMac);
+		leftover = leftover + CHR(ch);
+	}
+	tmpMac = leftover;
+	HOSTMAC = tmpMac;	
+	storeSessionId = tmpMac + "-" + genSession + "-" + ITOA(yNum) + ITOA(mNum) + ITOA(dNum);
+	msg = "Session START: " + genSession; 	
+	/* Designated Session Start */	
+	BuildHttpMessage("session",msg,USER,SESSION);
+}
+
+Function EndSession()
+{
+	STRING msg[256];
+	
+	msg = "Session STOP: " + SESSION;
+	
+	storeSessionId = " ";
+
+	/* Designated Session Stop */	
+	BuildHttpMessage("session",msg,USER,SESSION);	
+}
+
+
+Function GetConfigurationValue(string field)
+{
+	SIGNED_INTEGER offset,mNum,yNum,dNum,ContentLength;
+    SIGNED_LONG_INTEGER PortNumber;
+	STRING header1[1024],header2[1024],header3[1024],header4[1024],header5[1024],header6[1024];
+	STRING CLString[1024];
+	ContentLength = 0;
+	CLString = ITOA(ContentLength);
+
+	header1 = "GET /configuration/device/" + HOSTNAME +"?_source_include=" + field+ " HTTP/1.1" + NEWLINE;
+	header2 = "Host: " + AWS + ":" + ITOA(REPORTINGHOSTPORT) + NEWLINE;
+	header3 = "Connection: keep-alive" + NEWLINE;
+	header4 = "Content-Length: " + CLString + NEWLINE;
+	header5 = "Content-type: text/plain;charset=UTF-8" + NEWLINE;
+	header6 = "Accept: */*" + NEWLINE;
+
+	Send(header1);
+	Send(header2);
+	Send(header3);
+	Send(header4);
+	Send(header5);
+	Send(header6);
+	Send(NEWLINE);
+}
+
+
+/*******************************************************************************************
+  Event Handlers
+  (Uncomment and declare additional event handlers as needed)
+*******************************************************************************************/
+
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/******************
+//
+// !!! MOVE ACTIVE SIGNAL EVENTS INTO THIS SECTION !!!
+//
+******************/
+
+RELEASE Startup_press // Start the session, turn system on
+{  
+	StartSession();
+	
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Startup",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Startup_press",USER,SESSION);
+}
+
+RELEASE Confirm_System_Off  // End the session, turn system off
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "System Off",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Confirm_System_Off",USER,SESSION);
+	
+	/* Designated Session Stop */	
+	EndSession();
+}
+
+Release Program_Volume_Down // Volume Down
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Volume Down",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Program_Volume_Down",USER,SESSION);
+}
+
+Release Program_Volume_Up // Volume Down
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Volume Up",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Program_Volume_Up",USER,SESSION);
+}
+
+Release Select_Blank // Blank
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Blank",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_Blank",USER,SESSION);
+}
+
+Release Select_Device_Control_IPTV // IPTV Device Control
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Device Control - IPTV",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_Device_Control_IPTV",USER,SESSION);
+}
+
+Release Select_HDMI_Cable // HDMI Cable
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "HDMI Cable",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_HDMI_Cable",USER,SESSION);
+}
+
+Release Select_HDMI_Jack // HDMI Jack
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "HDMI Jack",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_HDMI_Jack",USER,SESSION);
+}
+
+Release Select_IPTV // IPTV Input
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "IPTV",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_IPTV",USER,SESSION);
+}
+
+Release Select_Local_Input // Local Input
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Local Input",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_Local_Input",USER,SESSION);
+}
+
+Release Select_Remote_Input1 // Remote Input 1
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", Input6,USER,SESSION);
+}
+
+Release Select_Remote_Input2 // Remote Input 2
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", Input7,USER,SESSION);
+}
+
+Release Select_VGA_Cable // VGA Input
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "VGA Cable",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_VGA_Cable",USER,SESSION);
+}
+
+Release Help_Menu_Press // Help
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Help Menu",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Help_Menu_Press",USER,SESSION);
+}
+
+Release Home_button // Home
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Home Button",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Home_button",USER,SESSION);
+}
+
+Release Select_AV_Jack // AV Jack Input
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "AV Jack",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_AV_Jack",USER,SESSION);
+}
+
+Release Select_BluRay // Blu-ray Input
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Blu-ray",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_BluRay",USER,SESSION);
+}
+
+Release Select_Device_Control_Bluray // Device Control Blu-ray
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "Device Control - Blu-ray",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_Device_Control_BluRay",USER,SESSION);
+}
+
+Release Select_PA_Control // PA Control
+{
+	/*User Event*/
+	BuildHttpMessage("touchpanel", "PA Control",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Select_PA_Control",USER,SESSION);
+}
+
+Release Program_Volume_Slider_Press // Slider volume control
+{
+	/* User Event */
+	BuildHttpMessage("touchpanel", "Volume Slider",USER,SESSION);
+	//BuildHttpMessage("touchpanel", "Program_Volume_Slider_Press",USER,SESSION);
+}
+
+Release Audio_Only_Press // Audio Only button on init screen
+{
+	/* Designated Session Start */
+	StartSession();
+
+	/* User Event */
+	//BuildHttpMessage("touchpanel", "Audio_Only_Press",USER,SESSION);
+	BuildHttpMessage("touchpanel", "Audio Only",USER,SESSION);
+}
+
+
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+// !!!!!!!!! MOVE INACTIVE SIGNAL EVENTS HERE !!!!!!!!!!!!!!
+
+
+// !!!!!!!! SYSTEM SETUP EVENTS -- NO EDITING
+// If system gets hostname, set it in the global var
+CHANGE cpHostName
+{
+	STRING temp[100],bldg[32],room[32],flr[2];
+	INTEGER c;
+	bldg = "";
+	room = "";
+	flr = "";	
+
+	HOSTNAME = cpHostName;
+	temp = cpHostName;
+
+	if(FIND(" ",cpHostName) >= 1)
+	{
+	//	temp = cpHostName;
+		bldg = REMOVE(" ",temp); // remove preceding space if there
+		room = REMOVE(" ",temp);
+		c = GETC(room);
+		flr = ITOA(c);
+	}
+
+	HOSTBLDG = bldg;
+	HOSTROOM = room;
+	HOSTFLOOR = flr;	
+}
+
+// If system gets IP, set it in the global var
+CHANGE cpIp
+{
+	STRING trash[16];
+	trash = REMOVE(" ",cpIp);
+	HOSTIP = cpIp;
+}
+
+// If system gets IP, set it in the global var
+CHANGE cpMACAddr
+{
+	STRING trash[32],temp[32];
+	if (FIND(" ",cpMACAddr) > 0)
+	{
+		temp = LEFT(cpMACAddr, LEN(cpMACAddr) - 1);
+		HOSTMAC = temp;
+	}
+	else
+	{
+		HOSTMAC = cpMACAddr;
+	}
+}
+// Generate/store SessionID
+CHANGE sessionId
+{
+	SESSION = sessionId;
+}
+
+CHANGE InputLabel1 
+{
+	INPUT1 = InputLabel1;
+}
+
+CHANGE InputLabel2
+{
+	INPUT2 = InputLabel2;
+}
+
+CHANGE InputLabel3
+{
+	INPUT3 = InputLabel3;
+}
+
+CHANGE InputLabel4
+{
+	INPUT4 = InputLabel4;
+}
+
+CHANGE InputLabel5
+{
+	INPUT5 = InputLabel5;
+}
+
+CHANGE InputLabel6
+{
+	INPUT6 = InputLabel6;
+}
+
+CHANGE InputLabel7
+{
+	INPUT7 = InputLabel7;
+}
+
+// Start a socket session to handle whether a push is active or not 
+PUSH clientConnected
+{
+ 	SIGNED_INTEGER status; // variable to capture/store socket status
+	status = SocketConnectClient (client, REPORTINGHOST, REPORTINGHOSTPORT, 0); // SocketConnectClient(tcpClient,host,port,reconnect)
+    
+	// Status < 0 is an error, greater than is a successful connection
+    if (status < 0)
+        Print("Error connecting socket to address %s on port  %d", REPORTINGHOST, REPORTINGHOSTPORT);
+}
+ 
+
+//Signal to disconnect socket has been sent
+RELEASE clientConnected  
+{
+	SIGNED_INTEGER status;
+	status = SocketDisconnectClient(client);
+
+	if (status < 0)
+		Print("Error disconnecting socket to address %s on port %d",REPORTINGHOST,REPORTINGHOSTPORT);
+}
+
+PUSH systemReady
+{
+	_clientConnected = 1;
+	BuildHttpMessage("controlProcessor", "System rebooted",SYSTEM,"");
+	
+}
+
+// The SOCKETCONNECT event is called when a socket connection is completed on a TCP_CLIENT or  TCP_SERVER variable.
+/***********
+When using the THREADSAFE keyword before an event (such as PUSH, RELEASE, CHANGE) the event is prevented from retriggering, until the entire code block in the event has executed.
+
+Events prevented from triggering WILL be dropped.
+
+************/
+THREADSAFE SOCKETCONNECT client
+{
+	SIGNED_INTEGER LocalStatus,PortNumber;
+	Print("OnConnect: input buffer size is: %d\n", Len(client.SocketRxBuf));
+
+    LocalStatus = SocketGetRemoteIPAddress(client, REPORTINGHOST);
+    PortNumber = SocketGetPortNumber(client);
+
+    if (LocalStatus < 0)
+        Print("Error getting remote ip address. %d\n", LocalStatus);
+	else if (PortNumber < 0)
+        Print("Error getting client port number. %ld\n", REPORTINGHOSTPORT);
+    else
+		Print("OnConnect: Connected to port %ld on address %s\n", REPORTINGHOSTPORT, REPORTINGHOST);
+	
+	// Consider doing a document overwrite
+	BuildHttpMessage("controlProcessor", "System active",SYSTEM,"");
+
+	// Starts timer to force reconnect of stale session
+
+	#IF_SERIES2
+	WAIT (RECONNECTTIME, ReconnectTimer)
+	{
+		_clientConnected = 0;
+		_clientConnected = 1;
+	}
+	#ENDIF
+	
+}
+
+// The SOCKETDISCONNECT event is called when a TCP_CLIENT or  TCP_SERVER socket is disconnected. Determine if this was done remotely (i.e. network, remote server, etc.) or locally via this module
+SOCKETDISCONNECT client
+{
+	if (clientConnected = 0)
+		Print("Socket disconnected remotely");
+	else
+		Print("Local socket disconnect complete.");
+	_clientConnected = 0;
+	_clientConnected = 1;
+	
+
+	#IF_SERIES2
+	CancelWait(ReconnectTimer);
+	#ENDIF
+}
+
+// Display the data received from the calls to the client and clear the buffer
+SOCKETRECEIVE client
+{
+	
+	#IF_SERIES2
+	RetimeWait(RECONNECTTIME, ReconnectTimer);
+	#ENDIF
+	
+	//STRING received$[1024];
+	//received$ = client.SocketRxBuf;
+    if (Len(client.SocketRxBuf) < 256)
+        Print("Rx: %s", client.SocketRxBuf);
+    
+    //storeGlobalVars(received$);    
+
+    // send to serial output and clear buffer
+    //clientRx = client.SocketRxBuf;
+    ClearBuffer(client.SocketRxBuf);
+}
+
+// The SOCKETSTATUS event is called when the status of a TCP_CLIENT or TCP_SERVER socket changes.
+SOCKETSTATUS client
+{
+	SIGNED_INTEGER Status;
+ 	Status = SocketGetStatus();
+    Switch(Status)
+	{
+		case(0):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: Not Connected");
+			//_clientConnected = 0;
+		}
+		case(1):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: Waiting for Connection");
+		}
+		case(2):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: Connected");
+		}
+		case(3):
+		{
+			Log("SOCKET STATUS: Connection Failed");
+			//_clientConnected = 0;
+		}
+		case(4):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: Connection Broken Remotely");
+			//_clientConnected = 0;
+		}
+		case(5):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: Connection Broken Locally");
+			//_clientConnected = 0;
+		}
+		case(6):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: Performing DNS Lookup");
+		}
+		case(7):
+		{
+			Log("SOCKET STATUS: DNS Lookup Failed");
+			//_clientConnected = 0;
+		}
+		case(8):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: DNS Name Resolved");
+		}
+		case(-1):
+		{
+			Log("SOCKET STATUS: Client, Server or UDP variable not a TCP/IP or UDP variable.");
+			//_clientConnected = 0;
+		}
+		case(-2):
+		{
+			Log("SOCKET STATUS: Could not create the connection task");
+			//_clientConnected = 0;
+		}
+		case(-3):
+		{
+			Log("SOCKET STATUS: Could not resolve address");
+			//_clientConnected = 0;
+		}
+		case(-4):
+		{
+			Log("SOCKET STATUS: Port not in range of 0-65535.");
+			//_clientConnected = 0;
+		}
+		case(-5):
+		{
+			//Comment this eventually
+			Log("SOCKET STATUS: No connection has been established");
+		}
+		case(-6):
+		{
+			Log("SOCKET STATUS: Not enough room in string parameter to hold IP address.");
+			//_clientConnected = 0;
+		}
+		default:
+		{
+			//Comment this eventually
+			Log("Socket Status Undefined");
+		}
+	};
+}
+
+/*******************************************************************************************
+  Main()
+  Uncomment and place one-time startup code here
+  (This code will get called when the system starts up)
+*******************************************************************************************/
+
+Function Main()
+{
+    // Initialize declared global and local variables/arrays
+
+    // If you are reading any Input or Output variables, uncomment
+    //   the WaitForInitializationComplete statement above and read
+    //   them afterwards.  Input/Output variables will not have
+    //   their correct values set until after the logic processor
+    //   runs and propagates the values to them.
+    WaitForInitializationComplete();
+
+	REPORTINGHOST = AWS;
+	REPORTINGHOSTPORT = 80;
+	RECONNECTTIME = 9000; // Set reconnect timer for 90 seconds.
+	HOSTNAME = "";
+	HOSTIP = "";
+	HOSTMAC = "";
+	HOSTBLDG = "";
+	HOSTROOM = "";
+	HOSTFLOOR = "";
+	HOSTLAT = "40.249719";
+	HOSTLON = "-111.649265";
+	SESSION = "";
+	INPUT1 = "";
+	INPUT2 = "";
+	INPUT3 = "";
+	INPUT4 = "";
+	INPUT5 = "";
+	INPUT6 = "";
+	INPUT7 = "";
+}

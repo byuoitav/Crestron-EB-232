@@ -1,0 +1,671 @@
+/*******************************************************************************************
+  SIMPL+ Module Information
+  (Fill in comments below)
+*******************************************************************************************/
+/*
+Dealer Name: Brigham Young University
+System Name: Sony Display IP Controller
+System Number: 1.2.23 
+Programmer: Dan Clegg
+Comments: Communicate with Sony Flat-panel (FWD or XBR) displays
+*/
+
+/*******************************************************************************************
+  Compiler Directives
+  (Uncomment and declare compiler directives as needed)
+*******************************************************************************************/
+#SYMBOL_NAME "Sony Display IP Controller"
+#CATEGORY "46" "Sony Displays"
+#DEFINE_CONSTANT	BIGGESTSIZE	65534
+#DEFINE_CONSTANT	NEWLINE	"\n"
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#PRINT_TO_Trace
+#ENABLE_Trace
+
+/*******************************************************************************************
+  DIGITAL_INPUT, ANALOG_INPUT, STRING_INPUT, BUFFER_INPUT inputs and DIGITAL_OUTPUT,
+  ANALOG_OUTPUT, STRING_OUTPUT and SERIAL_OUTPUT outputs
+*******************************************************************************************/
+DIGITAL_INPUT enable, getApiInfo, getVolumeValue,getSchemeList,getCurrentExternalInputsStatus,getInterfaceInformation,getLEDIndicatorStatus,getNetworkSettings,getPlayingContentInfo,getPowerSavingMode,getPowerStatus,powerOnDisplay,powerOffDisplay,getSystemInformation,getSystemSupportedFunction,getWolMode,requestReboot,muteAudio,unmuteAudio,setAudioVolumeToValue,incrementVolume,decrementVolume,setPlayContent,setPlayTvContent,pingHost;
+DIGITAL_INPUT _skip_,_skip_,_skip_,_skip_,_skip_;
+DIGITAL_INPUT blankDisplay,switchToHDMI1, switchToHDMI2, switchToHDMI3, switchToHDMI4, _skip_,_skip_,_skip_,audioConfiguredAsHeadphone,audioConfiguredAsSpeaker;
+
+STRING_INPUT	PSK$[32],IPAddress[32],parseRx[BIGGESTSIZE],contentToPlay[256],TVChannel[32],changeActiveInput[32];
+
+ANALOG_INPUT	_skip_,_skip_,setVolumeValue,systemMaxVolume;
+
+
+ANALOG_OUTPUT	speakerVolumeValue,headphoneVolumeValue,volumeToPanel;
+
+STRING_OUTPUT	SelectedSrcCh$,_skip_,ERR_MSG$,RX$,parsedResponse,activeSource;
+
+DIGITAL_OUTPUT	activeSource_HDMI1,activeSource_HDMI2,activeSource_HDMI3,activeSource_HDMI4,displayBlanked,powerIsOn,volumeIsMuted;
+
+DIGITAL_OUTPUT _SKIP_,ERR, CommErr;
+
+
+#USER_SIMPLSHARP_LIBRARY "SimplSharpNetUtils"
+#USER_SIMPLSHARP_LIBRARY "SimplSharpStringUtils"
+
+/*******************************************************************************************
+  Global Variables
+  (Uncomment and declare global variables as needed)
+  Note:  Be sure to initialize all declared STRING variables as needed
+         For example, in Function Main: myString = "";
+*******************************************************************************************/
+
+STRING PSK[32],IP[32],body[1024],TVCH[32],rx[BIGGESTSIZE],rxStr[BIGGESTSIZE],URL[1024],playContentString[256],tvTunerChannel[32],newInput[32];
+STRING parsedMessage[1000];
+INTEGER isEnabled,volume,volumeStepValue,incrementDecrementStepValue,minVolume,maxVolume,headphoneAudio,speakerAudio,displayIsPoweredOn;
+
+HTTPRequest client;
+StringUtils stringUtility;
+
+/*******************************************************************************************
+  Functions -- No Editing
+*******************************************************************************************/
+
+Function Log(string msg)
+{
+	Print("\n");
+    Trace("Trace: %s",msg);
+
+}
+
+Function Error(string msg)
+{
+	Log(msg);
+}
+
+/*******************************************************************************************
+  Event Handlers
+  (Uncomment and declare additional event handlers as needed)
+*******************************************************************************************/
+
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/////////////////////////////////////////////////
+/******************
+//
+// !!! MOVE ACTIVE SIGNAL EVENTS INTO THIS SECTION !!!
+//
+******************/
+
+
+FUNCTION sendMessage(string resource, string body) {
+	SIGNED_LONG_INTEGER result;
+	STRING revisedString[100];
+	// Trace("Is enabled: %d",isEnabled);
+	if (isEnabled = 1)
+	{
+		revisedString = "sony/" + resource;
+		Trace("resource %s", revisedString);
+		Trace("URL %s", URL);
+		Trace("PSK %s", PSK);
+		Trace("body %s", body);
+		
+		result = client.SendCommand(URL, revisedString, body, PSK);
+		Trace("result %ld",result);
+	}
+}
+
+FUNCTION unblank()
+{
+	body = "{ \"method\": \"setPowerSavingMode\", \"id\": 52, \"params\": [{\"mode\": \"off\"}], \"version\": \"1.0\" }";
+	sendMessage("system",body);
+	wait(10);
+}
+
+FUNCTION getVolumeValues(){
+	string status[16],speaker[4],headphone[4];
+// Trace("getVolumeValues rx: %s",rx);
+
+	body = "{ \"id\": 33, \"method\": \"getVolumeInformation\", \"params\": [], \"version\": \"1.0\"}";
+	sendMessage("audio", body);
+	status = stringUtility.getSonyResponseValue(rx,"volume");
+	
+// Trace("getVolumeValues status 1: %s",status);
+	
+// Trace("getVolumeValues rx: %s",rx);
+
+	parsedResponse = status;
+//	place = stringParse.NumberOfMembers(status,","); 
+	speaker = stringUtility.GetMemberOfStringArray(status,",",0);
+	headphone = stringUtility.GetMemberOfStringArray(status,",",1);
+// Trace("speaker: %s",speaker);
+// Trace("headphone: %s", headphone);
+// Trace("status of volume: %s",status);
+	RX$=status;
+	SpeakerVolumeValue = atoi(speaker) * volumeStepValue;
+	HeadphoneVolumeValue = atoi(headphone) * volumeStepValue;
+	/*if (headphoneAudio = 1) {
+		volumeToPanel = HeadphoneVolumeValue;
+	}
+	else {
+		volumeToPanel = SpeakerVolumeValue;
+	}*/
+}
+
+STRING_FUNCTION cleanup(string in){
+	string out[1024];
+
+	out = stringUtility.Replace(in,"\"","");
+	out = stringUtility.Replace(out,":","");
+	out = stringUtility.Replace(out,"=","");
+	out = stringUtility.Trim(out);
+	return(out);
+}        
+
+function resetOutputFeedback(){
+	activeSource_HDMI1 = 0;
+	activeSource_HDMI2 = 0;
+	activeSource_HDMI3 = 0;
+	activeSource_HDMI4 = 0;
+	displayBlanked = 0;
+	ERR = 0;
+}
+
+function powerSavingsMode(){
+	string mode[12],body[1024];
+	SIGNED_INTEGER powerSavingsModeOn;
+
+   	body = "{ \"id\": 51, \"method\": \"getPowerSavingMode\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);
+	mode = stringUtility.getSonyResponseValue(rx,"mode");
+	mode = cleanup(mode);
+
+	powerSavingsModeOn = CompareStringsNoCase(mode,"pictureOff");
+
+//	LOG(mode);
+//	TRACE("%d",powerSavingsModeOn);
+
+	if (powerSavingsModeOn = 0){
+		powerIsOn = 1;
+		displayIsPoweredOn = 1;
+		resetOutputFeedback();
+		displayBlanked = 1;
+	}
+	else {
+     	powerIsOn = 0;
+		displayIsPoweredOn = 0;
+		displayBlanked = 0;
+	}
+
+}
+
+function powerStatus(){
+	string status[16];
+	SIGNED_INTEGER statusIsActive;
+
+ 	body = "{ \"id\": 50, \"method\": \"getPowerStatus\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);	
+	parsedMessage = stringUtility.getSonyResponseValue(rx,"status");
+	// Print("Simpl+ Print: %s", parsedMessage);
+	parsedResponse = parsedMessage;
+        
+	// string cleanup
+	status = stringUtility.Replace(parsedMessage,"\"","");
+	status = stringUtility.Trim(status);
+    //Trace("status: %s", status);
+	// set power on feedback
+
+	statusIsActive = CompareStringsNoCase(status,"active");
+//	LOG(status);
+//	TRACE("%d",statusIsActive);
+    //Trace("status: %d",statusIsActive);
+	// Active Source Logic
+	if (statusIsActive != 0){
+		powerIsOn = 1;
+		displayIsPoweredOn = 1;
+		resetOutputFeedback();
+		displayBlanked = 1;
+	}
+	else {
+     	powerIsOn = 0;
+		displayIsPoweredOn = 0;
+		displayBlanked = 0;
+	}
+}
+
+function getPlayingContent(){
+	string source_part1[16],source_part2[16],title[32],uri[32],temp[32],HDMI[4],errorText[1024];
+	SIGNED_LONG_INTEGER numMembers;
+	SIGNED_INTEGER sourceIsHDMI;
+	INTEGER sourceNumber;
+	// Consider other inputs
+    
+	// Constants and init                            
+	HDMI = "HDMI";
+	sourceNumber = 0;
+	
+
+	body = "{ \"id\": 103, \"method\": \"getPlayingContentInfo\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("avContent", body);
+
+	
+    // errors
+	errorText = stringUtility.JSONAttributes(rx,"error");
+	Log(errorText);
+
+	// String Cleanup
+	uri = stringUtility.getSonyResponseValue(rx,"uri");
+	title = stringUtility.getSonyResponseValue(rx,"title");
+	temp = stringUtility.Replace(uri,"extInput","");
+	temp = stringUtility.Replace(temp,"\"","");
+	temp = stringUtility.Replace(temp,":","");
+	temp = stringUtility.Replace(temp,"=","");
+	temp = stringUtility.Replace(temp,"port","");
+	temp = stringUtility.Trim(temp);
+
+	numMembers = stringUtility.NumberOfMembers(temp,"?");
+	source_part1 = stringUtility.GetMemberOfStringArray(temp,"?",0);
+	if (numMembers != 0){
+		source_part2 = stringUtility.GetMemberOfStringArray(temp,"?",1);
+	}
+	parsedMessage = title;
+	// Print("Simpl+ Print: %s", parsedMessage);
+	parsedResponse = parsedMessage;
+	activeSource = parsedMessage;
+	
+	sourceIsHDMI = CompareStringsNoCase(HDMI,parsedMessage);
+
+	// Active Source Logic
+	if (sourceIsHDMI != 0){
+		Log("Source is HDMI");
+		sourceNumber = atoi(source_part2);
+		
+		if (sourceNumber = 1){
+			Log("HDMI1");
+			resetOutputFeedback();
+			// Active source is HDMI1
+			activeSource_HDMI1 = 1;
+		}
+		else if (sourceNumber = 2){
+			Log("HDMI2");		
+			resetOutputFeedback();
+			// Active source is HDMI2
+			activeSource_HDMI2 = 1;
+		}
+		else if (sourceNumber = 3){
+			Log("HDMI3");
+			resetOutputFeedback();
+			// Active source is HDMI3
+			activeSource_HDMI3 = 1;
+		}
+		else if (sourceNumber = 4){
+			Log("HDMI4");
+			resetOutputFeedback();
+			// Active source is HDMI4
+			activeSource_HDMI4 = 1;
+		}
+		else if (sourceNumber = 0){
+			resetOutputFeedback();
+			// Error state
+			ERR = 1;
+			ERR_MSG$ = "Cannot parse active source";
+		}
+		else{
+			ERR = 1;
+			ERR_MSG$ = "Error parsing active source";			
+		}
+	}
+}
+
+FUNCTION getStatus(){
+	wait(10) {
+		powerStatus();
+	}
+	wait(10) {
+		getVolumeValues();
+	}
+	wait(10) {
+		getPlayingContent();
+	}
+}
+
+///////////////
+// API Method Events
+///////////////
+
+PUSH pingHost
+{
+	string pingResult[16];
+	
+//	pingResult = client.Ping(URL);
+
+//	Log(pingResult);
+}
+
+RELEASE blankDisplay
+{
+	//body = "{ \"id\": 55, \"method\": \"setPowerStatus\", \"params\": [{\"status\": false}],\"version\": \"1.0\" }";
+	body = "{ \"method\": \"setPowerSavingMode\", \"id\": 52, \"params\": [{\"mode\": \"pictureOff\"}], \"version\": \"1.0\" }";
+	sendMessage("system", body);
+	wait(10){
+		powerStatus();
+	}
+}
+
+RELEASE switchToHDMI1
+{	
+	unblank();
+	body = "{ \"id\": 101, \"method\": \"setPlayContent\", \"params\": [{\"uri\": \"extInput:hdmi?port=1\"}], \"version\": \"1.0\" }";
+	sendMessage("avContent",body);
+	getStatus();
+}
+RELEASE switchToHDMI2
+{
+	unblank();
+	body = "{ \"id\": 101, \"method\": \"setPlayContent\", \"params\": [{\"uri\": \"extInput:hdmi?port=2\"}], \"version\": \"1.0\" }";
+	sendMessage("avContent",body);
+	getStatus();
+}
+RELEASE switchToHDMI3
+{
+	unblank();
+	body = "{ \"id\": 101, \"method\": \"setPlayContent\", \"params\": [{\"uri\": \"extInput:hdmi?port=3\"}], \"version\": \"1.0\" }";
+	sendMessage("avContent",body);
+	getStatus();
+}
+RELEASE switchToHDMI4
+{
+	unblank();
+	body = "{ \"id\": 101, \"method\": \"setPlayContent\", \"params\": [{\"uri\": \"extInput:hdmi?port=4\"}], \"version\": \"1.0\" }";
+	sendMessage("avContent",body);
+	getStatus();
+}
+
+RELEASE getSchemeList // Gets list of input types the display can handle
+ {
+	body = "{ \"id\": 1, \"method\": \"getSchemeList\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("avContent",body);
+ }
+RELEASE getCurrentExternalInputsStatus // Gets the current status for all external inputs
+ {
+	body = "{ \"id\": 105, \"method\": \"getCurrentExternalInputsStatus\", \"params\": [],\"version\": \"1.1\" }";
+	sendMessage("avContent",body);
+ }
+RELEASE getInterfaceInformation // Provides information of WebAPI interface provided by the server
+ {
+	body = "{ \"id\": 33, \"method\": \"getInterfaceInformation\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);
+ }
+RELEASE getLEDIndicatorStatus // Get LED Indicator Mode
+ {
+	body = "{ \"id\": 45, \"method\": \"getLEDIndicatorStatus\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);
+ }
+RELEASE getNetworkSettings // Information about network settings. "netif" set to "" displays info for all interfaces
+ {
+	body = "{ \"id\": 2, \"method\": \"getNetworkSettings\", \"params\": [{\"netif\": \"\"}], \"version\":\"1.0\" }";
+	sendMessage("system", body);
+ }
+RELEASE getPlayingContentInfo // Information of current playing content or current input selected.
+ {
+/*	body = "{ \"id\": 103, \"method\": \"getPlayingContentInfo\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("avContent", body);*/
+	getPlayingContent();
+ }
+RELEASE getPowerSavingMode // Provides setting of power saving mode
+ {
+/*	body = "{ \"id\": 51, \"method\": \"getPowerSavingMode\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);*/
+	powerSavingsMode();
+ }
+RELEASE getPowerStatus // Gets current power status of display
+ {	
+	/*body = "{ \"id\": 50, \"method\": \"getPowerStatus\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);	
+	parsedMessage = stringUtility.getSonyResponseValue(rx,"status");
+	// Print("Simpl+ Print: %s", parsedMessage);
+	parsedResponse = parsedMessage;*/
+	
+    powerStatus();
+}
+RELEASE powerOnDisplay
+{
+	body = "{ \"id\": 55, \"method\": \"setPowerStatus\", \"params\": [{\"status\": true}],\"version\": \"1.0\" }";
+	sendMessage("system", body);
+}
+RELEASE powerOffDisplay
+{
+	body = "{ \"id\": 55, \"method\": \"setPowerStatus\", \"params\": [{\"status\": false}],\"version\": \"1.0\" }";
+	sendMessage("system", body);
+}
+
+/*RELEASE getSourceList // Gets valid source types for a scheme
+ {
+	body = "{ \"id\": 1, \"method\": \"getSourceList\", \"params\": [{\"scheme\": \"tv\"}], \"version\":\"1.0\" }";
+ 	sendMessage("avContent", body);
+ }*/
+RELEASE getApiInfo // Show supported API information for the display
+ {
+	body = "{ \"id\": 5, \"method\": \"getSupportedApiInfo\", \"params\": [{ \"services\": [\"system\", \"avContent\", \"guide\", \"accessControl\", \"appControl\", \"audio\", \"avContent\", \"browser\", \"encryption\", \"notification\", \"recording\", \"system\", \"videoScreen\", \"cec\", \"photoshare\", \"broadcastLink\", \"contentshare\",]}], \"version\": \"1.0\"}";
+	sendMessage("guide", body);
+}
+RELEASE getSystemInformation // Get information about display
+{
+	body = "{ \"id\": 33, \"method\": \"getSystemInformation\", \"params\": [], \"version\": \"1.0\"}";
+	sendMessage("system", body);
+}
+RELEASE getSystemSupportedFunction // Get supported system functions, such as Wake On LAN, etc.
+ { 
+	body = "{ \"id\": 55, \"method\": \"getSystemSupportedFunction\", \"params\": [], \"version\":\"1.0\" }";
+	sendMessage("system", body);
+}
+RELEASE getVolumeValue // Provides information about sound volume (also mute status) of the device
+ {
+	getVolumeValues();
+ }
+
+RELEASE getWolMode // Get current Wake On LAN settings
+ {
+	body = "{ \"id\": 50, \"method\": \"getWolMode\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);
+ }
+RELEASE requestReboot // Reboot a Device !!!!!!!!DANGER WILL ROBINSON!!!!!!!!!!!!
+ {
+	body = "{ \"id\": 10, \"method\": \"requestReboot\", \"params\": [], \"version\": \"1.0\" }";
+	sendMessage("system", body);
+ }
+RELEASE muteAudio // Change Audio Mute Status
+ {
+	body = "{ \"id\": 601, \"method\": \"setAudioMute\", \"params\": [{\"status\": true}], \"version\": \"1.0\"}";
+	sendMessage("audio", body);
+	wait(10)
+		getVolumeValues();
+ }
+RELEASE unmuteAudio
+{
+     body = "{ \"id\": 601, \"method\": \"setAudioMute\", \"params\": [{\"status\": false}], \"version\": \"1.0\"}";
+	sendMessage("audio", body);
+	wait(10)
+		getVolumeValues();
+}
+RELEASE setAudioVolumeToValue // Set the volume to an explicit value
+{
+	if ( headphoneAudio = 1)
+	{
+		body = "{ \"id\": 601, \"method\": \"setAudioVolume\", \"params\": [{ \"volume\": \"" + ITOA(volume) + "\", \"target\": \"headphone\" }], \"version\": \"1.0\"}";
+	}
+	else {
+		body = "{ \"id\": 601, \"method\": \"setAudioVolume\", \"params\": [{ \"volume\": \"" + ITOA(volume) + "\", \"target\": \"speaker\" }], \"version\": \"1.0\"}";
+	}
+	sendMessage("audio", body);
+	wait(10)
+		getVolumeValues();
+}
+RELEASE incrementVolume // Increase the volume by a set amount
+{
+	if ( headphoneAudio = 1)
+	{
+		body = "{ \"id\": 601, \"method\": \"setAudioVolume\", \"params\": [{ \"volume\": \"+" + ITOA(incrementDecrementStepValue) + "\", \"target\": \"headphone\" }], \"version\": \"1.0\"}";
+	}
+	else {
+		body = "{ \"id\": 601, \"method\": \"setAudioVolume\", \"params\": [{ \"volume\": \"+" + ITOA(incrementDecrementStepValue) + "\", \"target\": \"speaker\" }], \"version\": \"1.0\"}";
+	}
+
+	sendMessage("audio", body);
+	wait(10)
+		getVolumeValues();
+}
+RELEASE decrementVolume // Decrease the volume by a set amount
+{
+	if ( headphoneAudio = 1)
+	{
+		body = "{ \"id\": 601, \"method\": \"setAudioVolume\", \"params\": [{ \"volume\": \"-" + ITOA(incrementDecrementStepValue) + "\", \"target\": \"headphone\" }], \"version\": \"1.0\"}";
+	}
+	else {
+		body = "{ \"id\": 601, \"method\": \"setAudioVolume\", \"params\": [{ \"volume\": \"-" + ITOA(incrementDecrementStepValue) + "\", \"target\": \"speaker\" }], \"version\": \"1.0\"}";
+	}
+	sendMessage("audio", body);
+	wait(10)
+		getVolumeValues();
+}
+RELEASE setPlayTvContent // Change to a specific channel or input
+ {
+	body = "{ \"id\": 101, \"method\": \"setPlayTvContent\", \"params\": [{ \"channel\": {\"dispNum\":\""+ tvTunerChannel +"\"} }], \"version\": \"1.1\" }";
+	sendMessage("avContent", body);
+	getStatus();
+ }
+RELEASE setPlayContent // Used, among other things, to switch inputs
+{
+	body = "{ \"id\": 101, \"method\": \"setPlayContent\", \"params\": [{\"uri\":\""+ newInput + "\"}], \"version\": \"1.0\" }";
+    sendMessage("avContent", body);
+	getStatus();
+}
+
+ 
+//////////////////////////////////////////////
+// !!!!!!!! SYSTEM SETUP EVENTS -- NO EDITING
+
+CHANGE audioConfiguredAsHeadphone
+{
+	headphoneAudio = audioConfiguredAsHeadphone;	
+}
+
+CHANGE audioConfiguredAsSpeaker
+{
+	speakerAudio = audioConfiguredAsSpeaker;
+}
+
+CHANGE PSK$                                  
+{
+	PSK = PSK$;
+}
+
+CHANGE IPAddress
+{
+	IP = IPAddress;
+	URL = "http://" + IP;
+}
+CHANGE setVolumeValue
+{
+	if(setVolumeValue <= minVolume)
+	{
+		if (minVolume > 0){
+			volume = minVolume * volumeStepValue;
+		}
+		else
+		{
+			volume = 0;
+		}
+	}
+	else if (setVolumeValue >= maxVolume)
+	{
+		volume = maxVolume * volumeStepValue;
+	}
+	else {
+		volume = setVolumeValue * volumeStepValue;
+	}
+}
+
+CHANGE contentToPlay
+{
+	playContentString = contentToPlay;
+}
+CHANGE TVCHANNEL
+{
+	tvTunerChannel = TVCHANNEL;
+}
+CHANGE changeActiveInput
+{
+	newInput = changeActiveInput;
+}
+
+CHANGE enable
+{
+	isEnabled = enable;
+}
+
+CHANGE parseRx
+{
+	rx = parseRx;
+	
+	// Trace("parseRx: %s",parseRx);
+}
+
+CHANGE systemMaxVolume{
+
+	maxVolume = systemMaxVolume;
+}
+
+Callback Function OnReceive(String s)
+{
+	//RX$ = "";
+	// Trace("On Receive: %s",s);
+	rxstr = s;
+
+	// Trace("On Receive rxstr: %s",s);
+	RX$ = s;
+
+	// Trace("On Receive rx: %s",s);
+	ERR = 0;
+}
+
+Callback Function OnError(String s)
+{	
+	// Trace("Client Error: %s", client.errorMessage);
+	rxstr = s;
+	ERR_msg$ = s;
+	ERR = 1;	
+}
+
+Function Init()
+{
+	RegisterDelegate(client,OnResponse,OnReceive);
+	RegisterDelegate(client,OnError,OnError);
+	PSK = "";
+	IP = "";
+	rx = "";
+	rxStr = "";
+	URL = "http://" + IP;
+	body = "";
+	TVCH = "";
+	parsedMessage = "";
+	minVolume = 0;
+	maxVolume = 100;	
+	volumeStepValue = BIGGESTSIZE / maxVolume;
+	playContentString = "";
+	tvTunerChannel = "";
+	newInput = "";	
+	isEnabled = 0;
+	headphoneAudio = 0;
+	speakerAudio = 0;
+	displayIsPoweredOn = 0;
+	incrementDecrementStepValue = 1;
+}
+
+/*******************************************************************************************
+  Main()
+  Uncomment and place one-time startup code here
+  (This code will get called when the system starts up)
+*******************************************************************************************/
+
+Function Main()
+{
+    WaitForInitializationComplete();
+
+	Init();
+}

@@ -1,0 +1,59 @@
+#DEFAULT_NONVOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+
+DIGITAL_INPUT RecallSettings;
+DIGITAL_OUTPUT Initialize;
+STRING_INPUT StringIn[50][50];
+STRING_OUTPUT StringOut[50];
+
+STRING StringInStore[50][50];
+STRING Initialized[11];
+
+
+
+Function SendToOutput()
+{
+	Integer i;
+	i = 1;
+
+	For (i = 1 TO 50)
+	{
+		StringOut[i] = StringInStore[i];
+    }
+}
+
+
+Push RecallSettings
+{
+	SendToOutput();
+}
+
+
+Change StringIn
+{
+	integer index;
+	index = getlastmodifiedarrayindex();
+
+	StringInStore[index] = StringIn[index];
+
+//	StringOut[index] = StringInStore[index];
+
+}
+
+
+Function Main()
+{
+    WaitForInitializationComplete();
+
+	if(Initialized = "initialized")
+	{
+		SendToOutput();
+	}
+	else
+	{
+		pulse (1, Initialize);
+		Initialized = "initialized";
+	}	
+	
+}

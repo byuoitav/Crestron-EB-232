@@ -1,0 +1,27 @@
+<Device Model="RMC3">
+   <Network Type="Cresnet" Id="01"/>
+   <Network Type="Ethernet" Id="02">
+      <Device Model="TSW-1050" DeviceId="03"/>
+      <Device Model="FT-TS600" DeviceId="04"/>
+      <Device Model="RoomView SE/RoomView 7.2" DeviceId="0E" Name="RV SE Production Main&Display1 RV SE Production"/>
+      <Device Model="DM-NVX-35x" DeviceId="30" Name="DM-NVX-35xC - TX1"/>
+      <Device Model="DM-NVX-35x" DeviceId="31" Name="DM-NVX-35xC - TX2"/>
+      <Device Model="DM-NVX-35x" DeviceId="32" Name="DM-NVX-35xC - TX3"/>
+      <Device Model="DM-NVX-35x" DeviceId="33" Name="DM-NVX-35xC - TX4"/>
+      <Device Model="DM-NVX-35x" DeviceId="34" Name="DM-NVX-35xC - TX5"/>
+      <Device Model="DM-NVX-35x" DeviceId="35" Name="DM-NVX-35xC - TX6"/>
+      <Device Model="DM-NVX-35x" DeviceId="36" Name="DM-NVX-35xC - TX7"/>
+      <Device Model="DM-NVX-35x" DeviceId="37" Name="DM-NVX-35xC - TX8"/>
+      <Device Model="DM-NVX-35x" DeviceId="38" Name="DM-NVX-35xC - TX9"/>
+      <Device Model="DM-NVX-35x" DeviceId="39" Name="DM-NVX-35xC - TX10"/>
+      <Device Model="DM-NVX-35x" DeviceId="3A" Name="DM-NVX-35xC - TX11"/>
+      <Device Model="DM-NVX-35x" DeviceId="40" Name="DM-NVX-350 - RX1"/>
+      <Device Model="DM-NVX-35x" DeviceId="41" Name="DM-NVX-350 - RX2"/>
+      <Device Model="DM-NVX-35x" DeviceId="42" Name="DM-NVX-350 - RX3"/>
+      <Device Model="DM-NVX-35x" DeviceId="43" Name="DM-NVX-350 - RX4"/>
+      <Device Model="DM-NVX-35x" DeviceId="44" Name="DM-NVX-350 - RX5"/>
+      <Device Model="DM-NVX-35x" DeviceId="45" Name="DM-NVX-350 - RX6"/>
+      <Device Model="DM-NVX-35x" DeviceId="46" Name="DM-NVX-350 - RX7"/>
+      <Device Model="DM-NVX-35x" DeviceId="47" Name="DM-NVX-350 - RX8"/>
+   </Network>
+</Device>

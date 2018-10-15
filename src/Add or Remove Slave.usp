@@ -1,0 +1,183 @@
+//Module Info
+/*
+	Name: Bradley T Streeter / David Allred
+	Company: Brigham Young University
+*/
+
+//Compiler Directives
+#CATEGORY "46" "Monitoring"  //Custom
+#Default_Volatile	//All variables are in volatile memory (will be erased upon reboot)
+#Enable_Stack_Checking
+#Enable_Trace
+
+//Input output variables
+
+Digital_Input Add_Slave,Remove_Slave,Reset_Program,Test,Get_Program_Info;
+Buffer_Input IP_Address$[15],From_Console$[3000];
+String_Output _skip_,_skip_,_skip_,_skip_,Program_Name$,Compile_Date$,To_Console$, IPTable$, DMPSver$, DMPSHostname$, DMPSIP$, DMPSMAC$;
+
+//Global variables
+
+String IP_ID$[2],Port$[4];
+
+//Parameters
+
+//Parameter Properties
+
+//Sockets
+
+//Functions
+
+STRING_FUNCTION Sanitize(string msg, integer RemoveSpecialChars)
+{
+	string strippedMessage[1024], char[1];
+	integer i;
+    
+	strippedMessage = "";
+
+	If(RemoveSpecialChars = 1)
+	{
+		for (i = 1 to len(msg)) // Loop through the string
+		{
+			char = mid(msg, i, 1);
+
+			if ((char != "_") && (char != "/") && (char != " ")) // Kill character
+			{
+				strippedMessage = strippedMessage + char;
+			}
+		}
+	}
+
+	while (mid(strippedMessage, 1, 1) = " ") // Kill the leading space if it exists
+	{
+    	strippedMessage = right(strippedMessage, len(strippedMessage) - 1);
+	}
+     
+	while (mid(strippedMessage, len(strippedMessage), 1) = " ") // Kill the trailing space if it exists
+	{
+    	strippedMessage = left(strippedMessage, len(strippedMessage) - 1);
+	}
+       
+	RETURN (strippedMessage);
+}
+
+//Events-Push-Release-Change
+
+Push Add_Slave
+
+	{
+	To_Console$ = "ADDSlave " + IP_ID$ + " " + IP_Address$ + "\x0D";
+	IP_Address$ ="";
+	}
+
+Push Remove_Slave
+	{
+	To_Console$ = "REMSlave " + IP_ID$ + " " + IP_Address$ + "\x0D";
+	}
+
+Push Reset_Program
+	{
+	To_Console$ = "ProgReset" + "\x0D";
+	}
+
+Push Test
+	{
+	To_Console$ = "IPTable -I:" + IP_ID$ + "\x0D";
+	}
+
+Push Get_Program_Info
+	{
+	To_Console$ = "ProgComments\x0D";	//Request Running Program Info
+	To_Console$ = "ver\x0D";	//request DMPS Firmware version
+	To_Console$ = "host\x0D";	//request hostname
+	To_Console$ = "ipaddress\x0D"; // request JUST the ip address
+	To_Console$ = "estatus\x0D"; // request ethernet information, including MAC address
+	To_Console$ = "ipconfig\x0D"; // request ethernet information, including MAC address, becaus estatus is being depricated
+	}
+
+Change From_Console$
+	{
+	Integer StartPosition;
+	String in$[3000], TempString[100], Trash[250];
+
+	in$ = Gather("DMPS-300-C>", From_Console$);
+//	Print("in$ = %s",in$);
+//	Print("Length of in$ = %d\n", Len(in$));
+	if (Find("IP Table:",in$)&& (len(in$)<150))
+		{
+//		Print("Found IPTable ID:7");
+		IPTable$ = Left(in$,(Find("DMPS-300-C>",in$) - 5));
+		in$ = "";
+		}
+		else if (find("DMPS-300-C Cntrl Eng", in$))
+		{
+		DMPSver$ = Left(in$, (find("DMPS-300-C>",in$) - 5));
+		in$ = "";
+		}
+
+	While(Find("\x0A",In$))
+		{
+		TempString = Remove("\x0A",In$);
+		if (Find("Program File:",TempString))
+			{
+			Trash = Remove("Program File: ",TempString);
+			Program_Name$ = Left(TempString,Find("\x0A",Tempstring) - 2);
+			}
+
+		else if (Find("Compiled On:",TempString))
+			{
+			Trash = Remove("Compiled On:  ",TempString);
+			Compile_Date$ = Left(TempString,Find("\x0A",Tempstring) - 2);
+			}
+		else if (Find("Host Name:",TempString))
+			{
+			Trash = Remove("Host Name: ",TempString);
+//			Trash = Remove("\n",Trash);
+//			Trash = Remove("\r",Trash);
+//			DMPSHostname$ = Left(TempString,Find("\x0D",Tempstring) - 1);
+//			Print("TempString =%s",TempString);
+			Trash = Left(TempString,Find("\x0D",Tempstring) - 1);
+			Trash = sanitize(Trash,1);
+//			Print("DMPSHostname$ = %s",Trash);
+			DMPSHostname$ = Trash;
+			}
+		else if (Find("Device 0 IP address:",TempString))
+			{
+//			Trash = Right(TempString,Len(TempString) - Find(": ",Tempstring) - 1);
+			Trash = Remove("IP address:",TempString);
+//			Trash = Remove("\n",Trash);
+//			Trash = Remove("\r",Trash);
+			DMPSIP$ = Left(TempString,Find("\x0D",TempString) - 1);
+
+			}
+		else if (Find("MAC Address(es):",TempString))
+			{
+			Trash = Remove("MAC Address(es): ",TempString);
+//			Trash = Remove("\n",Trash);
+//			Trash = Remove("\r",Trash);
+//			DMPSMAC$ = Left(TempString,Find("\x0D",Tempstring) - 1);
+			DMPSMAC$ = Left(TempString,17);
+			}
+		else if (Find("MAC Address(es).... : ",TempString))	// For RMC3 Cntrl Eng [v1.501.0013 (Feb 03 2016)
+			{
+			Trash = Remove("MAC Address(es).... : ",TempString);
+//			Trash = Remove("\n",Trash);
+//			Trash = Remove("\r",Trash);
+//			DMPSMAC$ = Left(TempString,Find("\x0D",Tempstring) - 1);
+			DMPSMAC$ = Left(TempString,17);
+			}
+
+		}
+	}
+
+//Function Main
+
+Function Main()	//Gets run at startup
+
+	{
+	WaitForInitializationComplete();
+	IP_ID$ = "07";
+	Port$ = "2202";
+	Program_Name$ = "";
+	Compile_Date$ = "";
+	}
