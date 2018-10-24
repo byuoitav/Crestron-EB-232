@@ -1,0 +1,1121 @@
+    /*******************************************************************************************
+  SIMPL+ Module Information
+  (Fill in comments below)
+*******************************************************************************************/
+/*
+Dealer Name:CI
+System Name:NEC MultiSync
+System Number:
+Programmer:CH Modified by David Allred for NEC V463-AVT
+Comments:
+*/
+
+/*******************************************************************************************
+  Compiler Directives
+  (Uncomment and declare compiler directives as needed)
+*******************************************************************************************/
+// #ENABLE_DYNAMIC
+// #SYMBOL_NAME ""
+// #HINT ""
+// #DEFINE_CONSTANT
+// #CATEGORY "" 
+// #PRINT_TO_TRACE 
+// #DIGITAL_EXPAND 
+// #ANALOG_SERIAL_EXPAND 
+// #OUTPUT_SHIFT 
+// #HELP_PDF_FILE ""
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+#ENCODING_ASCII
+// #ENCODING_UTF16
+// #ENCODING_INHERIT_FROM_PARENT
+// #ENCODING_INHERIT_FROM_PROGRAM
+/*
+#HELP_BEGIN
+   (add additional lines of help lines)
+#HELP_END
+*/
+
+/*******************************************************************************************
+  Include Libraries
+  (Uncomment and include additional libraries as needed)
+*******************************************************************************************/
+// #CRESTRON_LIBRARY ""
+// #USER_LIBRARY ""
+
+/*******************************************************************************************
+  DIGITAL, ANALOG and SERIAL INPUTS and OUTPUTS
+  (Uncomment and declare inputs and outputs as needed)
+*******************************************************************************************/
+DIGITAL_INPUT Poll_Main_Info,Poll_Main_Info_No_Volume,Turn_Power_On, Turn_Power_Off, Turn_Mute_On, Turn_Mute_Off, Save_Current_Settings,Set_TV_Channel;
+DIGITAL_INPUT TV_Channel_Up, TV_Channel_Down, Lock_Control_Button, Unlock_Control_Button;
+DIGITAL_INPUT Toggle_Power,Toggle_Mute,Vol_Up,Vol_Down,Guide,Numeric_Format,Numberic_Ent;
+DIGITAL_INPUT Display, Menu,Exit,AutoSetup,Up,Down,Left_D,Right_D,SetButton,Picture_Mode,Aspect,Sound;
+DIGITAL_INPUT SendNewCH;
+DIGITAL_INPUT UsingTcpIP, TcpConnectFb;
+DIGITAL_INPUT Numbers[10];
+ANALOG_INPUT Change_Source, Change_Volume_Level,Change_TV_Channel,Change_Analog_Closed_Caption;
+ANALOG_INPUT Change_Digital_Closed_Caption, NewMajorCH, NewMinorCH, TcpStatus;
+// STRING_INPUT 
+BUFFER_INPUT FromDevice[500];
+
+DIGITAL_OUTPUT Power_Is_On, Power_Is_Off, Mute_Is_On,Mute_Is_Off, Control_Button_is_Locked, Control_Button_is_UnLocked;
+ANALOG_OUTPUT Volume_Analog,Selected_Input_Analog,Analog_Closed_Caption_Analog,Digital_Closed_Caption_Analog,MajorCH,MinorCH; 
+STRING_OUTPUT Selected_Channel_Text;
+STRING_OUTPUT ToDevice,Message;
+
+/*******************************************************************************************
+  SOCKETS
+  (Uncomment and define socket definitions as needed)
+*******************************************************************************************/
+// TCP_CLIENT
+// TCP_SERVER
+// UDP_SOCKET
+
+/*******************************************************************************************
+  Parameters
+  (Uncomment and declare parameters as needed)
+*******************************************************************************************/
+INTEGER_PARAMETER Monitor_ID;
+// SIGNED_INTEGER_PARAMETER
+// LONG_INTEGER_PARAMETER
+// SIGNED_LONG_INTEGER_PARAMETER
+// STRING_PARAMETER
+
+/*******************************************************************************************
+  Parameter Properties
+  (Uncomment and declare parameter properties as needed)
+*******************************************************************************************/
+/*
+#BEGIN_PARAMETER_PROPERTIES parameter_variable, parameter_variable, ...
+   // propValidUnits = // unitString or unitDecimal|unitHex|unitPercent|unitCharacter|unitTime|unitTicks;
+   // propDefaultUnit = // unitString, unitDecimal, unitHex, unitPercent, unitCharacter, unitTime or unitTicks;
+   // propBounds = lower_bound , upper_bound;
+   // propDefaultValue = ;  // or, propDefaultValue = "";
+   // propList = // { "value" , "label" } , { "value" , "label" } , ... ;
+   // propShortDescription = "status_bar_hint_text";
+   // #BEGIN_PROP_FULL_DESCRIPTION  line_1...  line_2...  line_n  #END_PROP_FULL_DESCRIPTION
+   // #BEGIN_PROP_NOTES line_1...  line_2...  line_n  #END_PROP_NOTES
+#END_PARAMETER_PROPERTIES
+*/
+
+/*******************************************************************************************
+  Structure Definitions
+  (Uncomment and define structure definitions as needed)
+  Note:  Be sure to initialize all declared STRING variables as needed
+         For example, in Function Main: struct.myString = "";
+*******************************************************************************************/
+/*
+STRUCTURE MyStruct1
+{
+};
+
+MyStruct1 struct;
+*/
+
+/*******************************************************************************************
+  Global Variables
+  (Uncomment and declare global variables as needed)
+  Note:  Be sure to initialize all declared STRING variables as needed
+         For example, in Function Main: myString = "";
+*******************************************************************************************/
+INTEGER RxOK,Sending;
+INTEGER RX_MessageLength,RX_MessageType,RX_Marker1,RX_Marker2,RX_Marker3,CurrentTVChannel,TVChMajor,TVChMinor;
+INTEGER _Volume,_Muted,_VolumeBeforeMuted;
+// LONG_INTEGER
+// SIGNED_INTEGER
+// SIGNED_LONG_INTEGER
+STRING ResponseString[3000],CommandString[10000],CommandToBeSent[50];
+STRING RX_Header[7],RX_Message[50],RX_Trash[100];
+
+/*******************************************************************************************
+  Functions
+  (Add any additional functions here)
+  Note:  Functions must be physically placed before the location in
+         the code that calls them.
+*******************************************************************************************/
+
+Function Send()
+{
+	if((UsingTcpIP = 0) || ((TcpConnectFb = 1) && (TcpStatus = 2)))
+	{
+    	CommandToBeSent = Remove("\x0D\x0A\x0A",CommandString);
+    	CommandToBeSent = left(CommandToBeSent,len(CommandToBeSent)-3);
+
+    	ToDevice = CommandToBeSent;
+
+    	wait(1000,SendWait1)
+    	{
+        	Trace("SendWait1");
+	    	ToDevice = CommandToBeSent;
+    	}
+    	wait(2000,SendWait2)
+    	{
+        	Trace("SendWait2");
+	    	ToDevice = CommandToBeSent;
+    	}
+    	wait(3000,SendWait3)
+    	{
+    	    Trace("IO Timeout");
+    	    sending = 0;
+    	    CommandString = "";
+    	}
+	}
+	else
+	{
+   	    Trace("TCP Status error");
+   	    sending = 0;
+   	    CommandString = "";
+	}
+}
+
+/*
+Integer_Function MyIntFunction1()
+{
+    // TODO:  Add local variable declarations here
+
+    // TODO:  Add code here
+
+    Return (0);
+}
+*/
+
+
+String_Function Calculate_BCC(String cmd)
+{
+   	Integer cmdLength,i,result;
+	cmdLength = len(cmd);
+	Result = Byte(cmd,1);
+
+	for(i = 2 to cmdLength)
+	{
+ 		result = result ^ Byte(cmd,i); 	   	
+	}
+ 
+    Return (chr(low(Result)));
+}
+
+Function AddCommand(String cmd)
+{
+	String temp[50],Result[5];
+	
+    MakeString(temp,"\x01\x30%s%s",chr(low(Monitor_ID+64)),cmd);
+	
+    Result = Calculate_BCC(right(temp,len(temp)-1));
+	temp = temp + Result + "\x0D\x0D\x0A\x0A";
+	CommandString = CommandString + temp;
+	
+	if(!sending)
+	{
+     	sending = 1;
+		send();
+	}
+}
+
+Function OutputSourceResult(Integer i)
+{
+	Switch(i)
+	{
+        case(0):
+		{
+           	Selected_Input_Analog = 0;
+		}
+		case(1):
+		{
+           	Selected_Input_Analog = 1;
+		}
+		case(2):
+		{
+           	Selected_Input_Analog = 2;
+		}
+		case(3):
+		{
+           	Selected_Input_Analog = 3;
+		}
+		case(5):
+		{
+           	Selected_Input_Analog = 4;
+		}
+		case(6):
+		{
+           	Selected_Input_Analog = 5;
+		}
+		case(7):
+		{
+           	Selected_Input_Analog = 6;
+		}
+		case(12):
+		{
+           	Selected_Input_Analog = 7;
+		}
+		case(4):
+		{
+           	Selected_Input_Analog = 8;
+		}
+		case(10):
+		{
+           	Selected_Input_Analog = 9;
+		}
+		case(17):
+		{
+           	Selected_Input_Analog = 10;
+		}
+		case(18):
+		{
+           	Selected_Input_Analog = 11;
+		}
+		case(19):
+		{
+           	Selected_Input_Analog = 12;
+		}
+		case(15):
+		{
+           	Selected_Input_Analog = 13;
+		}
+		case(13):
+		{
+           	Selected_Input_Analog = 14;
+		}
+		DEFAULT:
+		{
+          	Trace("Error Unrecognized input value");
+		}
+	}	
+}
+
+Function OutputAnalogCaptionResult(Integer i)
+{
+	Switch(i)
+	{
+        case(1):
+		{
+           	Analog_Closed_Caption_Analog = 0;
+		}
+		case(2):
+		{
+           	Analog_Closed_Caption_Analog = 1;
+		}
+		case(3):
+		{
+           	Analog_Closed_Caption_Analog = 2;
+		}
+		case(4):
+		{
+           	Analog_Closed_Caption_Analog = 3;
+		}
+		case(5):
+		{
+           	Analog_Closed_Caption_Analog = 4;
+		}
+		case(6):
+		{
+           	Analog_Closed_Caption_Analog = 5;
+		}
+		case(7):
+		{
+           	Analog_Closed_Caption_Analog = 6;
+		}
+		case(8):
+		{
+           	Analog_Closed_Caption_Analog = 7;
+		}
+		case(9):
+		{
+           	Analog_Closed_Caption_Analog = 8;
+		}
+	}	
+}
+
+Function OutputDigitalCaptionResult(Integer i)
+{
+	Switch(i)
+	{
+        case(1):
+		{
+           	Digital_Closed_Caption_Analog = 0;
+		}
+		case(2):
+		{
+           	Digital_Closed_Caption_Analog = 1;
+		}
+		case(3):
+		{
+           	Digital_Closed_Caption_Analog = 2;
+		}
+		case(4):
+		{
+           	Digital_Closed_Caption_Analog = 3;
+		}
+		case(5):
+		{
+           	Digital_Closed_Caption_Analog = 4;
+		}
+		case(6):
+		{
+           	Digital_Closed_Caption_Analog = 5;
+		}
+		case(7):
+		{
+           	Digital_Closed_Caption_Analog = 6;
+		}
+	}	
+}
+
+Function ProcessResponse(String cmd)
+{
+	Integer Result;
+	String TVCh$[20];
+	if(len(cmd) > 8)
+	{	    
+//  	MakeString(Message,"CMD: %s",cmd);
+		RX_MessageType = Byte(cmd,5);
+//		Trace("RX_MessageType= %X",RX_MessageType);
+//		MakeString(Message,"RX Found Message Type: %u,",RX_MessageType);
+		RX_MessageLength = 16*hextoi(mid(cmd,6,1)) + hextoi(mid(cmd, 7,1));
+		MakeString(Message,"RX Found Message Length: %u",RX_MessageLength);
+		Switch(RX_MessageType)
+		{
+        	case(0x42):// Command reply
+			{							                 
+				if(mid(cmd,9,2) = "02")
+				{
+					if(mid(cmd,11,2) = "00")
+					{
+			        	if(mid(cmd,13,4) = "D600")// Power on/off get status response
+						{	
+							if(mid(cmd,24,1) = "1")
+							{
+				          		pulse(10,Power_Is_On);
+							}
+							else
+							{
+				          		pulse(10,Power_Is_Off);
+							}
+						}  	
+					}
+					else
+					{
+                   		Trace("Error received while executing command");
+					}
+				}
+				else if(mid(cmd,9,2) = "00")// No error found
+				{
+					if(mid(cmd,11,6) = "C203D6")// Power on/off response
+					{
+						if(mid(cmd,20,1) = "1")
+						{
+                       		pulse(10,Power_Is_On);
+						}
+						else if(mid(cmd,20,1) = "4")
+						{
+                       		pulse(10,Power_Is_Off);
+						}
+					}   	
+				}
+				else if(mid(cmd,9,4) = "C32C")// Tuner Channel Response
+				{
+					TVChMajor = hextoi(mid(cmd,17,4));
+                	TVChMinor = hextoi(mid(cmd,21,4));
+					Makestring(TVCh$, "%d.%d", TVChMajor, TVChMinor);
+					Selected_Channel_Text = TVCh$;
+					MajorCh = TVChMajor;
+					MinorCh	= TVChMinor;
+				}	
+				else if(mid(cmd,9,4) = "C32D")// Tuner Channel Response
+				{
+					TVChMajor = hextoi(mid(cmd,17,4));
+                	TVChMinor = hextoi(mid(cmd,21,4));
+					Makestring(TVCh$, "%d.%d", TVChMajor, TVChMinor);
+					Selected_Channel_Text = TVCh$;
+					MajorCh = TVChMajor;
+					MinorCh	= TVChMinor;
+				}	
+				else if(mid(cmd,9,4) = "C22C")// Tuner Channel Response None
+				{
+					Makestring(TVCh$, "");
+					Selected_Channel_Text = TVCh$;
+				}	
+				else
+				{
+               		Trace("Error received while executing command");
+				} 
+			}
+			case(0x44)://Get parameter reply
+			{
+        	    if(mid(cmd,9,2) = "00")// No error found
+				{
+					if(mid(cmd,11,4) = "02BE")// Power indicator on/off response
+					{	
+						if(mid(cmd,18,1) = "1")
+						{
+            	           	pulse(10,Power_Is_On);
+						}
+						else if(mid(cmd,18,1) = "2")
+						{
+                       		pulse(10,Power_Is_Off);
+						}
+					}
+					else if(mid(cmd,11,4) = "0062")//Volume Level
+					{
+             		
+						if(!_Muted)
+						{
+							_Volume = hextoi(mid(cmd,23,2));
+							Volume_Analog = _Volume;
+							if(_Volume = 0)
+							{
+								_Muted = 1;
+	                  			pulse(10,Mute_Is_On);  	
+							}
+							else
+							{
+								_Muted = 0;
+	                     		pulse(10,Mute_Is_Off);
+							}
+						}	   	
+					}
+					else if(mid(cmd,11,4) = "0060")//Source Selection
+					{
+             			OutputSourceResult(hextoi(mid(cmd,23,2)));	   	
+					}
+					else if(mid(cmd,11,4) = "008D")//Mute Status
+					{
+						Result = hextoi(mid(cmd,23,2));
+						if(Result = 0)
+						{
+							_Muted = 0;
+							pulse(10,Mute_Is_Off);
+                    		//Volume_Analog = _Volume;
+						}
+						else if(Result = 1)
+						{
+							_Muted = 1;
+							_Volume = 0;
+                    		Volume_Analog = 0;
+							pulse(10,Mute_Is_On);
+						}
+						else if(Result = 2)
+						{
+							_Muted = 0;
+                    	 	Volume_Analog = _Volume;
+							pulse(10,Mute_Is_Off);
+						}   	
+					}
+					else if(mid(cmd,11,4) = "1084")//Analog Closed Caption
+					{             		
+						Result = hextoi(mid(cmd,23,2));
+						OutputAnalogCaptionResult(Result);	   	
+					}
+					else if(mid(cmd,11,4) = "10A1")//Digital Closed Caption
+					{             		
+						Result = hextoi(mid(cmd,23,2));
+						OutputDigitalCaptionResult(Result);	   	
+					}
+					else if(mid(cmd,11,4) = "00FB")//Control button lock
+					{
+                		Result = hextoi(mid(cmd,23,2));
+						if(Result = 1)
+						{
+                    		pulse(10,Control_Button_is_Locked);
+						}
+						else if(Result = 0)
+						{
+                    		pulse(10,Control_Button_is_UnLocked);
+						}
+					}
+					else 
+						Trace("Error Unrecognized command response:\n%s", cmd);
+				}
+				else
+				{
+            	   	Trace("Error received while retrieving value:\n%s", cmd);
+				}  	
+			}
+			case(0x46): // Set Parameter reply
+			{   
+     			if(mid(cmd,9,2) = "00")
+				{
+        	    	if(mid(cmd,11,4) = "0060")//Source selection
+					{             		
+						Result = hextoi(mid(cmd,23,2));
+						OutputSourceResult(Result);	   	
+					}
+					else if(mid(cmd,11,4) = "0062")//Volume level
+					{
+						_Volume = hextoi(mid(cmd,23,2));
+						Volume_Analog = _Volume;
+						if(_Volume = 0)
+						{
+							_Muted = 1;
+                	  		pulse(10,Mute_Is_On);  	
+						}
+						else
+						{
+							_Muted = 0;
+                     		pulse(10,Mute_Is_Off);
+						}	   	
+					}
+					else if(mid(cmd,11,4) = "008D")//Mute status
+					{
+						Result = hextoi(mid(cmd,23,2));
+						if(Result = 1)
+						{
+							_Muted = 1;
+                    		pulse(10,Mute_Is_On);
+							Volume_Analog = 0;
+						}
+						else if(Result = 2)
+						{
+							_Muted = 0;
+                     		pulse(10,Mute_Is_Off);
+							if(_Volume = 0)
+							{
+                        		_Volume = 1;
+							}
+							Volume_Analog = _Volume;
+						}   	
+					}
+					else if(mid(cmd,11,4) = "1084")//Analog Closed Caption
+					{             		
+						Result = hextoi(mid(cmd,23,2));
+						OutputAnalogCaptionResult(Result);	   	
+					}
+					else if(mid(cmd,11,4) = "10A1")//Digital Closed Caption
+					{             		
+						Result = hextoi(mid(cmd,23,2));
+						OutputDigitalCaptionResult(Result);	   	
+					}
+					else if(mid(cmd,11,4) = "00FB")//Control button lock
+					{
+                		Result = hextoi(mid(cmd,23,2));
+						if(Result = 1)
+						{
+                	    	pulse(10,Control_Button_is_Locked);
+						}
+						else if(Result = 0)
+						{
+                	    	pulse(10,Control_Button_is_UnLocked);
+						}
+					}
+				}
+				else
+				{
+               		Trace("Error received while Setting value");
+				}			   	
+			}
+      		DEFAULT:
+			{
+            	Trace("Error Unrecognized command response");
+			}
+    	}
+	}
+}
+
+
+/*******************************************************************************************
+  Event Handlers
+  (Uncomment and declare additional event handlers as needed)
+*******************************************************************************************/
+PUSH Poll_Main_Info
+{
+	AddCommand("\x30\x41\x30\x36\x02\x30\x31\x44\x36\x03");	//Power Status read
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x38\x44\x03");	//Get Mute value
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x36\x32\x03");	//Get Volume value				
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x36\x30\x03");	//Get Source value
+/*
+Not Supported on V463-AVT
+	AddCommand("\x30\x43\x30\x36\x02\x31\x30\x38\x34\x03"); //Get Analog Closed Caption Value 
+	AddCommand("\x30\x43\x30\x36\x02\x31\x30\x41\x31\x03"); //Get Digital Closed Caption Value
+*/
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x46\x42\x03"); //Get Control button lock value
+	AddCommand("\x30\x41\x30\x36\x02\x43\x32\x32\x43\x03"); //Get tuner Channel
+
+}
+
+PUSH Poll_Main_Info_No_Volume
+{
+	AddCommand("\x30\x41\x30\x36\x02\x30\x31\x44\x36\x03");	//Power Status read
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x38\x44\x03");	//Get Mute value				
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x36\x30\x03");	//Get Source value
+/*
+Not Supported on V463-AVT
+	AddCommand("\x30\x43\x30\x36\x02\x31\x30\x38\x34\x03"); //Get Analog Closed Caption Value
+	AddCommand("\x30\x43\x30\x36\x02\x31\x30\x41\x31\x03"); //Get Digital Closed Caption Value
+*/
+	AddCommand("\x30\x43\x30\x36\x02\x30\x30\x46\x42\x03"); //Get Control button lock value
+	AddCommand("\x30\x41\x30\x36\x02\x43\x32\x32\x43\x03"); //Get tuner Channel
+}
+
+PUSH Turn_Power_On
+{	
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x30\x33\x44\x36\x30\x30\x30\x31\x03");	    
+}
+
+PUSH Turn_Power_Off
+{	
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x30\x33\x44\x36\x30\x30\x30\x34\x03");	
+}
+
+PUSH Turn_Mute_On
+{
+	_VolumeBeforeMuted = _Volume;
+	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x32\x30\x30\x30\x30\x03");		
+}
+
+PUSH Turn_Mute_Off
+{
+    String temp[50],temp2[3];
+   	_Volume = _VolumeBeforeMuted;
+	if(_Volume = 0)
+	{
+        _Volume = 1;
+	}
+	MakeString(temp2,"%02X",_Volume);
+	MakeString(temp,"\x30\x45\x30\x41\x02\x30\x30\x36\x32\x30\x30%s%s\x03",mid(temp2,1,1),mid(temp2,2,1));
+	AddCommand(temp);
+}
+
+PUSH Save_Current_Settings
+{
+	AddCommand("\x30\x41\x30\x34\x02\x30\x43\x03");	
+}
+
+PUSH Set_TV_Channel
+{	
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x30\x33\x44\x36\x30\x30\x30\x34\x03");		
+}
+
+PUSH TV_Channel_Up
+{
+	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x38\x42\x30\x30\x30\x31\x03");
+	wait(100)
+		AddCommand("\x30\x41\x30\x36\x02\x43\x32\x32\x43\x03"); //Get tuner Channel
+}
+
+PUSH TV_Channel_Down
+{
+	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x38\x42\x30\x30\x30\x32\x03");
+	wait(100)
+		AddCommand("\x30\x41\x30\x36\x02\x43\x32\x32\x43\x03"); //Get tuner Channel
+}
+
+PUSH Lock_Control_Button
+{
+	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x46\x42\x30\x30\x30\x31\x03");
+}
+
+PUSH Unlock_Control_Button
+{
+	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x46\x42\x30\x30\x30\x30\x03");
+}
+
+
+PUSH Toggle_Power
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x30\x33\x30\x33\x03");
+}
+
+PUSH Toggle_Mute
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x42\x30\x33\x03");
+}
+
+PUSH Vol_Up
+{
+	//AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x37\x30\x33\x03");
+	//AddCommand("\x30\x41\x30\x45\x30\x41\x02\x31\x30\x41\x44\x30\x30\x30\x31\x03");
+	String temp[50],temp2[3];
+	
+	if(_Volume < 100 && !_Muted)
+	{
+  		_Volume = _Volume + 1;
+		MakeString(temp2,"%02X",_Volume);
+		MakeString(temp,"\x30\x45\x30\x41\x02\x30\x30\x36\x32\x30\x30%s%s\x03",mid(temp2,1,1),mid(temp2,2,1));
+		AddCommand(temp);  	
+	}
+}
+
+PUSH Vol_Down
+{
+	//AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x36\x30\x33\x03");
+	//AddCommand("\x30\x45\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x36\x30\x33\x03");
+	String temp[50],temp2[3];
+	
+	if(_Volume > 0 && !_Muted)
+	{
+		if(_Volume = 1)
+		{
+        	_VolumeBeforeMuted = _Volume;
+		}
+     	_Volume = _Volume - 1;
+		MakeString(temp2,"%02X",_Volume);
+		MakeString(temp,"\x30\x45\x30\x41\x02\x30\x30\x36\x32\x30\x30%s%s\x03",mid(temp2,1,1),mid(temp2,2,1));
+		AddCommand(temp);
+	}
+}
+
+PUSH Guide
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x33\x34\x30\x33\x03");
+}
+
+PUSH Guide
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x33\x34\x30\x33\x03");
+}
+
+PUSH Numeric_Format
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x34\x34\x30\x33\x03");
+}
+
+PUSH Numberic_Ent
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x34\x35\x30\x33\x03");
+}
+
+PUSH Display
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x39\x30\x33\x03");
+}
+
+PUSH Menu
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x32\x30\x30\x33\x03");
+}
+
+PUSH Exit
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x46\x30\x33\x03");
+}
+
+PUSH AutoSetup
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x43\x30\x33\x03");
+}
+
+PUSH Up
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x35\x30\x33\x03");
+}
+
+PUSH Down
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x34\x30\x33\x03");
+}
+
+PUSH Left_D
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x32\x31\x30\x33\x03");
+}
+
+PUSH Right_D
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x32\x32\x30\x33\x03");
+}
+
+PUSH SetButton
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x32\x33\x30\x33\x03");
+}
+
+PUSH Picture_Mode
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x31\x44\x30\x33\x03");
+}
+
+PUSH Aspect
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x32\x39\x30\x33\x03");
+}
+
+PUSH Sound
+{
+	AddCommand("\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30\x34\x33\x30\x33\x03");
+}
+
+PUSH Numbers
+{
+	Integer i;
+	String temp[50];
+	i = getLastModifiedArrayIndex();
+	MakeString(temp,"\x30\x41\x30\x43\x02\x43\x32\x31\x30\x30\x30");
+    
+	Switch(i)
+	{
+    	case(1):
+		{
+        	temp = temp + "\x30\x38";
+		}
+		case(2):
+		{
+        	temp = temp + "\x30\x39";
+		}
+		case(3):
+		{
+        	temp = temp + "\x30\x41";
+		}
+		case(4):
+		{
+        	temp = temp + "\x30\x42";
+		}
+		case(5):
+		{
+        	temp = temp + "\x30\x43";
+		}
+		case(6):
+		{
+        	temp = temp + "\x30\x44";
+		}
+		case(7):
+		{
+        	temp = temp + "\x30\x45";
+		}
+		case(8):
+		{
+        	temp = temp + "\x30\x46";
+		}
+		case(9):
+		{
+        	temp = temp + "\x31\x30";
+		}
+		case(10):
+		{
+        	temp = temp + "\x31\x32";
+		}
+	}
+
+	temp = temp + "\x30\x33\x03";
+	AddCommand(temp);	
+}
+
+Push SendNewCH
+{
+	string Temp[50];
+	makestring(temp,"0A12\x02C22D%08X%04X\x03", NewMajorCH, NewMinorCH);
+//	Trace("Channel CMD: %s",temp);
+	AddCommand(temp);
+	wait(100)
+		AddCommand("\x30\x41\x30\x36\x02\x43\x32\x32\x43\x03"); //Get tuner Channel
+
+}
+
+CHANGE Change_Source
+{
+	String temp[50],Result[5];
+    
+	Switch(Change_Source)
+	{
+		case(0)://No source
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x30\x03");
+		}
+    	case(1)://VGA
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x31\x03");
+		}
+		case(2)://VGA/HV
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x32\x03");
+		}
+		case(3)://DVI
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x33\x03");
+		}
+		case(4)://Video1
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x35\x03");
+		}
+		case(5)://Video2
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x36\x03");
+		}
+		case(6)://Svideo
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x37\x03");
+		}
+		case(7)://Component1
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x43\x03");
+		}
+		case(8)://Component2
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x34\x03");
+		}
+		case(9)://TV
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x41\x03");
+		}
+		case(10)://HDMI1
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x31\x31\x03");
+		}
+		case(11)://HDMI2
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x31\x32\x03");
+		}
+		case(12)://HDMI3
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x31\x33\x03");
+		}
+		case(13)://Display port
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x46\x03");
+		}
+		case(14)://Option Card
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x30\x30\x36\x30\x30\x30\x30\x44\x03");
+		}
+		
+	}	
+}
+
+CHANGE  Change_Volume_Level
+{
+	String temp[50],temp2[3];
+	MakeString(temp2,"%02X",Change_Volume_Level);
+	//trace("Volume in hex: temp2 = %s",temp2);
+	_Volume = Change_Volume_Level;
+	MakeString(temp,"\x30\x45\x30\x41\x02\x30\x30\x36\x32\x30\x30%s%s\x03",mid(temp2,1,1),mid(temp2,2,1));
+	AddCommand(temp);	
+}
+
+CHANGE Change_TV_Channel
+{
+	CurrentTVChannel = Change_TV_Channel;
+}
+
+CHANGE Change_Analog_Closed_Caption
+{   
+	Switch(Change_Source)
+	{
+		case(0)://Caption off
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x31\x03");
+		}
+    	case(1)://Caption CC1
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x32\x03");
+		}
+		case(2)://Caption CC2
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x33\x03");
+		}
+		case(3)://Caption CC3
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x34\x03");
+		}
+		case(4)://Caption CC4
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x35\x03");
+		}
+		case(5)://Caption TT1
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x36\x03");
+		}
+		case(6)://Caption TT2
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x31\x37\x03");
+		}
+		case(7)://Caption TT3
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x38\x03");
+		}
+		case(8)://Caption TT4
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x38\x34\x30\x30\x30\x39\x03");
+		}
+	}	
+}
+
+CHANGE Change_Digital_Closed_Caption
+{	    
+	Switch(Change_Source)
+	{
+		case(0)://Caption off
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x30\x31\x03");
+		}
+    	case(1)://Caption Srv1
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x30\x32\x03");
+		}
+		case(2)://Caption Srv2
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x30\x33\x03");
+		}
+		case(3)://Caption Srv3
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x30\x34\x03");
+		}
+		case(4)://Caption Srv4
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x30\x35\x03");
+		}
+		case(5)://Caption Srv5
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x30\x36\x03");
+		}
+		case(6)://Caption Srv6
+		{
+        	AddCommand("\x30\x45\x30\x41\x02\x31\x30\x41\x31\x30\x30\x31\x37\x03");
+		}
+	}
+}
+
+CHANGE FromDevice
+{
+    ResponseString = ResponseString + FromDevice;
+	clearbuffer(FromDevice);
+	if(RxOK)
+	{
+		RxOK = 0;     
+        while(find("\x0D",ResponseString))
+		{			
+			RX_Marker3 = find("\x0D",ResponseString);
+			if(RX_Marker3)// && (RX_Marker1 < RX_Marker2))
+			{
+				RX_Message = RemoveByLength(RX_Marker3,ResponseString);
+				cancelwait(SendWait1);
+				cancelwait(SendWait2);
+				cancelwait(SendWait3);
+				ProcessResponse(RX_Message);
+				if(len(CommandString))
+				{
+					send();
+				}
+				else
+				{
+					sending = 0;
+				}				
+            }
+		}
+		RxOk = 1;
+	}
+}
+
+
+/*******************************************************************************************
+  Main()
+  Uncomment and place one-time startup code here
+  (This code will get called when the system starts up)
+*******************************************************************************************/
+
+Function Main()
+{
+    WaitForInitializationComplete();
+	RxOK = 1;
+	RX_MessageLength = 0;
+	RX_Marker1 = 0;
+	RX_Marker2 = 0;
+	Sending = 0;
+	ResponseString = "";
+	CommandString = "";
+    _Volume = 0;
+	_Muted = 0;
+	_VolumeBeforeMuted = 0;
+	CurrentTVChannel = 0;
+}
+
+
