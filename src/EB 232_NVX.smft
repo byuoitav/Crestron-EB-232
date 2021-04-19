@@ -15,6 +15,8 @@
       <Device Model="DM-NVX-350C,DM-NVX-351C" DeviceId="3B" Name="DM-NVX-35xC - TX11"/>
       <Device Model="DM-NVX-350C,DM-NVX-351C" DeviceId="3C" Name="DM-NVX-35xC - TX12"/>
       <Device Model="DM-NVX-350C,DM-NVX-351C" DeviceId="3D" Name="DM-NVX-35xC - TX13"/>
+      <Device Model="DM-NVX-E30" DeviceId="3E" Name="DM-NVX-E30 (Deprecated) - TX14"/>
+      <Device Model="DM-NVX-E30" DeviceId="3F" Name="DM-NVX-E30 (Deprecated) - TX15"/>
       <Device Model="DM-NVX-350,DM-NVX-351" DeviceId="41" Name="DM-NVX-350 - RX1"/>
       <Device Model="DM-NVX-350,DM-NVX-351" DeviceId="42" Name="DM-NVX-350 - RX2"/>
       <Device Model="DM-NVX-350,DM-NVX-351" DeviceId="43" Name="DM-NVX-350 - RX3"/>
